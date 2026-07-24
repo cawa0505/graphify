@@ -2496,6 +2496,7 @@ def dispatch_command(cmd: str) -> None:
         # Performance/tuning knobs (issue #792). None means "use library default".
         cli_max_workers: int | None = None
         cli_token_budget: int | None = None
+        cli_chunk_size: int | None = None
         cli_max_concurrency: int | None = None
         cli_api_timeout: float | None = None
         # Clustering tuning knobs
@@ -2574,6 +2575,10 @@ def dispatch_command(cmd: str) -> None:
                 cli_token_budget = _parse_int("--token-budget", args[i + 1]); i += 2
             elif a.startswith("--token-budget="):
                 cli_token_budget = _parse_int("--token-budget", a.split("=", 1)[1]); i += 1
+            elif a == "--chunk-size" and i + 1 < len(args):
+                cli_chunk_size = _parse_int("--chunk-size", args[i + 1]); i += 2
+            elif a.startswith("--chunk-size="):
+                cli_chunk_size = _parse_int("--chunk-size", a.split("=", 1)[1]); i += 1
             elif a == "--max-concurrency" and i + 1 < len(args):
                 cli_max_concurrency = _parse_int("--max-concurrency", args[i + 1]); i += 2
             elif a.startswith("--max-concurrency="):
@@ -2632,6 +2637,17 @@ def dispatch_command(cmd: str) -> None:
             os.environ["GRAPHIFY_API_TIMEOUT"] = str(cli_api_timeout)
         if cli_max_workers is not None:
             os.environ["GRAPHIFY_MAX_WORKERS"] = str(cli_max_workers)
+
+        # Config.json fallback: if CLI args not given, read from ~/.graphify/config.json
+        # New structure: extraction.chunk_size / extraction.max_concurrency
+        # Fallback: top-level chunk_size / max_concurrency (flat)
+        if cli_chunk_size is None or cli_max_concurrency is None:
+            from graphify.llm import _config_extraction, _config_backend
+            _active_backend = _config_backend()
+            if cli_chunk_size is None:
+                cli_chunk_size = int(_config_extraction("chunk_size", 1, backend=_active_backend))
+            if cli_max_concurrency is None:
+                cli_max_concurrency = int(_config_extraction("max_concurrency", 1, backend=_active_backend))
 
         # Resolve output dir. The user-facing contract is "<out>/graphify-out/"
         # so a fresh checkout writes graphify-out/ at the project root, matching
@@ -3016,6 +3032,10 @@ def dispatch_command(cmd: str) -> None:
                     corpus_kwargs["deep_mode"] = True
                 if cli_token_budget is not None:
                     corpus_kwargs["token_budget"] = cli_token_budget
+                if cli_chunk_size is not None:
+                    # chunk_size only takes effect when token_budget is None
+                    corpus_kwargs["token_budget"] = None
+                    corpus_kwargs["chunk_size"] = cli_chunk_size
                 if cli_max_concurrency is not None:
                     corpus_kwargs["max_concurrency"] = cli_max_concurrency
 
