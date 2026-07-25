@@ -4291,6 +4291,7 @@ def _extract_parallel(
     BrokenProcessPool); the caller should fall back to sequential extraction.
     """
     import concurrent.futures
+    import multiprocessing
 
     if max_workers is None:
         # Honour GRAPHIFY_MAX_WORKERS env override; otherwise scale to the
@@ -4327,7 +4328,8 @@ def _extract_parallel(
     done_count = 0
     _PROGRESS_INTERVAL = 100
     try:
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
+        ctx = multiprocessing.get_context("spawn")
+        with ctx.ProcessPoolExecutor(max_workers=max_workers) as pool:
             futures = {
                 pool.submit(_extract_single_file, item): pos
                 for pos, item in enumerate(work_items)
