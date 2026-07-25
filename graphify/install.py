@@ -62,7 +62,7 @@ def _refresh_all_version_stamps() -> None:
     Prevents stale-version warnings from platforms that were installed previously
     but not explicitly re-installed during this upgrade.
     """
-    for name in _PLATFORM_CONFIG:
+    for name in list(_PLATFORM_CONFIG) + ["gemini"]:
         skill_dst = _platform_skill_destination(name)
         vf = skill_dst.parent / ".graphify_version"
         if skill_dst.exists():
@@ -174,7 +174,7 @@ def _install_skill_references(skill_dst: Path, refs_src: Path) -> None:
         if refs_staged.exists():
             shutil.rmtree(refs_staged, ignore_errors=True)
         raise
-def _copy_skill_file(platform_name: str, *, project: bool = False, project_dir: Path | None = None) -> Path:
+def _copy_skill_file(platform_name: str, *, project: bool = False, project_dir: Path | None = None, force: bool = True) -> Path:
     """Copy a packaged skill file and write its version stamp.
 
     For progressive platforms (those with ``skill_refs`` set), the packaged
@@ -202,6 +202,23 @@ def _copy_skill_file(platform_name: str, *, project: bool = False, project_dir: 
 
     skill_dst = _platform_skill_destination(platform_name, project=project, project_dir=project_dir)
     skill_dst.parent.mkdir(parents=True, exist_ok=True)
+
+    # If force=False, skip copy if destination file already exists and has different content (customized)
+    skip_copy = False
+    if not force and skill_dst.exists():
+        try:
+            curr_content = skill_dst.read_text(encoding="utf-8")
+            new_content = skill_src.read_text(encoding="utf-8")
+            if curr_content != new_content:
+                skip_copy = True
+        except Exception:
+            pass
+
+    if skip_copy:
+        # Atomic version stamp update even on skipped copy
+        (skill_dst.parent / ".graphify_version").write_text(__version__, encoding="utf-8")
+        print(f"  skill customized ->  preserved {skill_dst} (version stamp updated)")
+        return skill_dst
 
     # Install the references/ sidecar (or clear an orphan one) BEFORE writing
     # SKILL.md, so SKILL.md is the last artifact laid down. An install that is
@@ -675,10 +692,12 @@ def install(platform: str = "claude", *, project: bool = False, project_dir: Pat
     print()
 def _print_install_usage() -> None:
     platforms = ", ".join([*_PLATFORM_CONFIG, "gemini", "cursor"])
-    print("Usage: graphify install [--project] [--strict] [--platform P|P]")
+    print("Usage: graphify install [--project] [--strict] [--platform P|P] [--align] [--force]")
     print(f"Platforms: {platforms}")
     print("  --strict  block the first raw file read per session until one "
           "`graphify query` runs (Claude Code project hook only; needs --project)")
+    print("  --align   only update/align previously-installed skills, preserving customized ones")
+    print("  --force   force-overwrite customized skills during alignment")
 _CLAUDE_MD_MARKER = "## graphify"
 _CODEBUDDY_MD_MARKER = "## graphify"
 _AGENTS_MD_MARKER = "## graphify"
@@ -1943,6 +1962,8 @@ def dispatch_install_cli(cmd: str) -> bool:
         selected_platform: str | None = None
         project_scope = False
         strict = False
+        align = False
+        force = False
         args = sys.argv[2:]
         i = 0
         while i < len(args):
@@ -1955,6 +1976,12 @@ def dispatch_install_cli(cmd: str) -> bool:
                 i += 1
             elif arg == "--strict":
                 strict = True
+                i += 1
+            elif arg == "--align":
+                align = True
+                i += 1
+            elif arg == "--force":
+                force = True
                 i += 1
             elif arg.startswith("--platform="):
                 candidate = arg.split("=", 1)[1]
@@ -1982,6 +2009,37 @@ def dispatch_install_cli(cmd: str) -> bool:
                     sys.exit(1)
                 selected_platform = arg
                 i += 1
+
+        if align:
+            _print_banner()
+            project_dir = Path(".")
+            aligned_any = False
+            for platform_name in list(_PLATFORM_CONFIG.keys()) + ["gemini"]:
+                skill_dst = _platform_skill_destination(platform_name, project=project_scope, project_dir=project_dir)
+                if skill_dst.exists():
+                    aligned_any = True
+                    print(f"Aligning skill for {platform_name}...")
+                    _copy_skill_file(platform_name, project=project_scope, project_dir=project_dir, force=force)
+                    if platform_name == "opencode":
+                        _install_opencode_plugin(project_dir)
+                    elif platform_name == "claude" and _PLATFORM_CONFIG["claude"]["claude_md"]:
+                        claude_md = (project_dir / ".claude" / "CLAUDE.md") if project_scope else Path.home() / ".claude" / "CLAUDE.md"
+                        registration = _skill_registration(".claude/skills/graphify/SKILL.md" if project_scope else "~/.claude/skills/graphify/SKILL.md")
+                        if claude_md.exists():
+                            content = claude_md.read_text(encoding="utf-8")
+                            if "graphify" not in content:
+                                claude_md.write_text(content.rstrip() + registration, encoding="utf-8")
+                                print(f"  CLAUDE.md        ->  skill registered in {claude_md}")
+                        else:
+                            claude_md.parent.mkdir(parents=True, exist_ok=True)
+                            claude_md.write_text(registration.lstrip(), encoding="utf-8")
+                            print(f"  CLAUDE.md        ->  created at {claude_md}")
+            if not aligned_any:
+                print("No installed platforms found to align. Run 'graphify install <platform>' to install your first skill.")
+            else:
+                print("\nAlignment completed successfully.")
+            return True
+
         chosen_platform = selected_platform or default_platform
         if project_scope:
             _project_install(chosen_platform, Path("."), strict=strict)
@@ -1993,6 +2051,7 @@ def dispatch_install_cli(cmd: str) -> bool:
                     file=sys.stderr,
                 )
             install(platform=chosen_platform)
+        return True
     elif cmd == "uninstall":
         args = sys.argv[2:]
         purge = "--purge" in args
