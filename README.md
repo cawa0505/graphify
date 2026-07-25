@@ -100,7 +100,7 @@ Unified JavaScript and TypeScript analysis. Previously, the parser performed **4
 
 ### Rust-Compiled gigatoken Engine
 Replaced the default `tiktoken` library with `gigatoken` (a highly-optimized Rust BPE tokenizer with drop-in `.as_tiktoken()` compatibility) utilizing an `openai-community/gpt2` proxy encoding.
-- Includes robust special-token handling (`allowed_special="all"`) to prevent crashes on raw document strings like `<|endoftext|>`.
+- Includes robust special-token handling (`allowed_special="all"`) to prevent crashes on raw document strings like `<|endoftext|>` (prevents tokenizer `ValueError` crashes when scanning raw document strings, markdown files, or prompt injection test suites inside code files).
 - Accelerates chunk packing token estimation on large codebases.
 
 ### Adaptive JSON Engine (orjson)
