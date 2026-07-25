@@ -23,7 +23,10 @@ from pathlib import Path
 try:
     from importlib.metadata import version as _pkg_version
 
-    __version__ = _pkg_version("graphifyy")
+    try:
+        __version__ = _pkg_version("graphify-opt")
+    except Exception:
+        __version__ = _pkg_version("graphifyy")
 except Exception:
     __version__ = "unknown"
 

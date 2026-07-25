@@ -14,7 +14,10 @@ from pathlib import Path
 try:
     from importlib.metadata import version as _pkg_version
 
-    __version__ = _pkg_version("graphifyy")
+    try:
+        __version__ = _pkg_version("graphify-opt")
+    except Exception:
+        __version__ = _pkg_version("graphifyy")
 except Exception:
     __version__ = "unknown"
 
@@ -198,13 +201,13 @@ def _check_skill_version(skill_dst: Path) -> None:
             # `uv tool` CLI, or a contributor whose dev checkout stamped a newer skill.
             print(
                 f"  warning: skill is from graphify {installed}, but the package is "
-                f"{__version__} (older). Upgrade the package "
-                f"(e.g. 'uv tool upgrade graphifyy' or 'pip install -U graphifyy'); "
-                f"running 'graphify install' would downgrade the skill.",
+                f"{__version__} (older or different). Upgrade the package "
+                f"(e.g. 'uv tool upgrade graphify-opt' or 'pip install -U graphify-opt'); "
+                f"running 'graphify install' will overwrite and align the on-disk skill.",
                 file=sys.stderr,
             )
         else:
-            print(f"  warning: skill is from graphify {installed}, package is {__version__}. Run 'graphify install' to update.", file=sys.stderr)
+            print(f"  warning: skill is from graphify {installed}, package is {__version__}. Run 'graphify install' to overwrite and align.", file=sys.stderr)
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
