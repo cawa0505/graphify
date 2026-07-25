@@ -89,6 +89,11 @@ Introduces an adaptive JSON compatibility layer (`graphify/json_compat.py`) that
 - **3x to 10x JSON Speedup**: Accelerates massive `graph.json` serialization, deserialization, and high-frequency cache reads/writes during large scans.
 - **Zero-Friction Fallback**: Automatically and gracefully falls back to Python's standard `json` module with identical signatures if `orjson` is not installed.
 
+### Double-Layer Memoized Symbol Resolution
+Implements an extremely fast dual-layer caching mechanism during cross-file symbol and export path resolution in `resolution.py`.
+- **$O(1)$ Flattened Resolution**: Fully memoizes recursive export tracing and file-level local alias resolutions, flattening complex lookup complexities to $O(1)$ and reducing processing times to virtually zero in large codebases.
+- **Star & Wildcard Resiliency**: Prevents recursive redundant walks over multi-layer module structures (such as index file re-exports or star wildcards).
+
 ---
 
 ## 3. LLM Cost & Token Optimizations

@@ -926,9 +926,13 @@ def _apply_symbol_resolution_facts(
                     target_file=str(path_by_resolved.get(origin[0], origin[0])),
                 )
 
+    resolved_exports_cache: dict[tuple[Path, str], tuple[Path, str]] = {}
+
     def resolve_exported_origin(target_path: Path, imported_name: str, seen: set[tuple[Path, str]] | None = None) -> tuple[Path, str]:
         target_path = target_path.resolve()
         key = (target_path, imported_name)
+        if key in resolved_exports_cache:
+            return resolved_exports_cache[key]
         if seen is None:
             seen = set()
         if key in seen:
@@ -936,14 +940,19 @@ def _apply_symbol_resolution_facts(
         seen.add(key)
         origin = named_exports_by_file.get(target_path, {}).get(imported_name)
         if origin is not None:
-            return resolve_exported_origin(origin[0], origin[1], seen)
+            res = resolve_exported_origin(origin[0], origin[1], seen)
+            resolved_exports_cache[key] = res
+            return res
         for star_target in star_exports_by_file.get(target_path, []):
             star_key = (star_target, imported_name)
             if star_key in symbol_nodes:
+                resolved_exports_cache[key] = star_key
                 return star_key
             resolved = resolve_exported_origin(star_target, imported_name, seen)
             if resolved in symbol_nodes:
+                resolved_exports_cache[key] = resolved
                 return resolved
+        resolved_exports_cache[key] = key
         return key
 
     for import_fact in facts.imports:
@@ -980,21 +989,29 @@ def _apply_symbol_resolution_facts(
             local_alias=local_name if local_name != to_path.stem else None,
         )
 
+    resolved_local_symbols_cache: dict[tuple[Path, str], str | None] = {}
+
     for use_fact in facts.uses:
         file_path = use_fact.file_path.resolve()
-        target_id = None
-        unresolved_origin = local_aliases_by_file.get(file_path, {}).get(use_fact.local_name)
-        if unresolved_origin is not None:
-            origin_path, origin_symbol = resolve_exported_origin(*unresolved_origin)
-            target_id = symbol_nodes.get((origin_path, origin_symbol))
-        if target_id is None and use_fact.relation in ("inherits", "implements"):
-            # Same-file fallback for HERITAGE only: a base declared in the same
-            # file (`class X extends Y`, `interface A extends B`) has no import
-            # alias, so resolve it directly against the file's own symbol nodes.
-            # Scoped to heritage because same-file calls/uses already resolve via
-            # the dedicated call-graph pass; widening this would duplicate those
-            # edges. Import resolution still takes precedence (#1095).
-            target_id = symbol_nodes.get((file_path, use_fact.local_name))
+        cache_key = (file_path, use_fact.local_name)
+        if cache_key in resolved_local_symbols_cache:
+            target_id = resolved_local_symbols_cache[cache_key]
+        else:
+            target_id = None
+            unresolved_origin = local_aliases_by_file.get(file_path, {}).get(use_fact.local_name)
+            if unresolved_origin is not None:
+                origin_path, origin_symbol = resolve_exported_origin(*unresolved_origin)
+                target_id = symbol_nodes.get((origin_path, origin_symbol))
+            if target_id is None and use_fact.relation in ("inherits", "implements"):
+                # Same-file fallback for HERITAGE only: a base declared in the same
+                # file (`class X extends Y`, `interface A extends B`) has no import
+                # alias, so resolve it directly against the file's own symbol nodes.
+                # Scoped to heritage because same-file calls/uses already resolve via
+                # the dedicated call-graph pass; widening this would duplicate those
+                # edges. Import resolution still takes precedence (#1095).
+                target_id = symbol_nodes.get((file_path, use_fact.local_name))
+            resolved_local_symbols_cache[cache_key] = target_id
+            
         if target_id is None:
             continue
         add_edge(
