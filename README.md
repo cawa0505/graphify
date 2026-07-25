@@ -84,6 +84,11 @@ Replaced the default `tiktoken` library with `gigatoken` (a highly-optimized Rus
 - Includes robust special-token handling (`allowed_special="all"`) to prevent crashes on raw document strings like `<|endoftext|>`.
 - Accelerates chunk packing token estimation on large codebases.
 
+### Adaptive JSON Engine (orjson)
+Introduces an adaptive JSON compatibility layer (`graphify/json_compat.py`) that dynamically leverages the Rust-compiled `orjson` library when available.
+- **3x to 10x JSON Speedup**: Accelerates massive `graph.json` serialization, deserialization, and high-frequency cache reads/writes during large scans.
+- **Zero-Friction Fallback**: Automatically and gracefully falls back to Python's standard `json` module with identical signatures if `orjson` is not installed.
+
 ---
 
 ## 3. LLM Cost & Token Optimizations

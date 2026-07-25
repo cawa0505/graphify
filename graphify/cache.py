@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import atexit
 import hashlib
-import json
+from graphify import json_compat as json
 import os
 import re
 import tempfile

@@ -6,7 +6,7 @@ module. The path-redirect (`graphify <path>` -> extract) re-enters via a lazy
 import of main to avoid a cli<->__main__ import cycle.
 """
 from __future__ import annotations
-import json
+from graphify import json_compat as json
 import os
 import re
 import sys
