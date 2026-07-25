@@ -9,7 +9,7 @@ import pytest
 @pytest.fixture(autouse=False)
 def no_tokenizer():
     """Force the chars/4 fallback so packing math is deterministic regardless
-    of whether tiktoken is installed in the test environment. tiktoken's BPE
+    of whether gigatoken is installed in the test environment. gigatoken's BPE
     compresses repeated/synthetic content heavily, which would make pack-size
     assertions tied to specific input sizes flaky."""
     from graphify import llm
@@ -107,8 +107,8 @@ def test_pack_chunks_rejects_non_positive_budget(tmp_path):
 
 # ---- Tokenizer fallback ------------------------------------------------------
 
-def test_estimate_file_tokens_uses_tiktoken_when_available(tmp_path):
-    """When tiktoken is installed, the estimator should call into it for
+def test_estimate_file_tokens_uses_tokenizer_when_available(tmp_path):
+    """When gigatoken is installed, the estimator should call into it for
     accurate counts rather than the chars/4 heuristic."""
     from graphify import llm
 
@@ -117,8 +117,8 @@ def test_estimate_file_tokens_uses_tiktoken_when_available(tmp_path):
     f.write_text(text)
 
     # Force the tokenizer to be a mock that records calls and returns a known
-    # token list, so we can assert the tiktoken path is taken.
-    # Match tiktoken's real signature: encode(text, *, disallowed_special=...)
+    # token list, so we can assert the gigatoken path is taken.
+    # Match gigatoken's tiktoken-compat signature: encode(text, *, disallowed_special=...)
     # so the #1685 hardening call (disallowed_special=()) reaches the mock.
     fake_encoder = type("E", (), {"encode": staticmethod(lambda s, **kw: [0] * 999)})()
     with patch.object(llm, "_TOKENIZER", fake_encoder):
@@ -127,7 +127,7 @@ def test_estimate_file_tokens_uses_tiktoken_when_available(tmp_path):
 
 
 def test_estimate_file_tokens_falls_back_to_chars_when_no_tokenizer(tmp_path):
-    """Without tiktoken installed, the estimator falls back to chars/4."""
+    """Without gigatoken installed, the estimator falls back to chars/4."""
     from graphify import llm
 
     f = tmp_path / "sample.py"
@@ -839,15 +839,15 @@ def test_corpus_parallel_uses_adaptive_retry(tmp_path):
 
 # ---- #1685: special-token strings in docs must not crash token estimation ----
 
-def test_estimate_file_tokens_handles_tiktoken_special_token(tmp_path):
-    """A doc containing a literal tiktoken special token (e.g. <|endoftext|>)
-    must not crash token estimation. tiktoken's default encode() raises on such
+def test_estimate_file_tokens_handles_special_token(tmp_path):
+    """A doc containing a literal special token (e.g. <|im_start|>)
+    must not crash token estimation. The tokenizer's default encode() raises on such
     strings appearing as ordinary text; we pass disallowed_special=() since this
     is only an estimate (#1685)."""
     import graphify.llm as llm
     if llm._TOKENIZER is None:
         import pytest
-        pytest.skip("tiktoken not installed; estimation uses the char heuristic")
+        pytest.skip("gigatoken not installed; estimation uses the char heuristic")
     f = tmp_path / "tokenizer-notes.md"
     f.write_text("The GPT end-of-text token is <|endoftext|> in the vocab.\n")
     n = llm._estimate_file_tokens(f)  # must not raise

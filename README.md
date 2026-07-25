@@ -94,3 +94,8 @@ Allows CLI-passed kwargs (like `cache_root`) without crashing on signature misma
 ### 7. `_partial_source_files` stub
 
 Prevents import crashes when semantic extraction returns incomplete source file references.
+
+### 8. gigatoken Integration
+
+Replaced `tiktoken` with `gigatoken` (Rust BPE tokenizer, drop-in `.as_tiktoken()` compat mode) with GPT-2 proxy encoding to optimize token count estimation, including robust special-token handling (`allowed_special="all"`).
+

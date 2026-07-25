@@ -32,29 +32,25 @@ _FILE_CHAR_CAP = 20_000
 # delimiter block (see issue #1210); this is roughly the per-file overhead in
 # characters that wrapper adds (open tag + 64-char sha + close tag + newlines).
 _PER_FILE_OVERHEAD_CHARS = 160
-# Coarse fallback used only when `tiktoken` is not installed. 1 token ≈ 4 chars
+# Coarse fallback used only when gigatoken is not installed. 1 token ≈ 4 chars
 # is the standard heuristic for English/code on BPE tokenizers.
 _CHARS_PER_TOKEN = 4
 
 
 def _get_tokenizer():
-    """Return a tiktoken encoder for accurate token counts, or None if tiktoken
-    is not installed. We use `cl100k_base` (GPT-4 / GPT-3.5-turbo) as a proxy:
-    Kimi-K2 ships a tiktoken-based tokenizer with very similar BPE behaviour,
-    and Claude's tokenizer has a comparable token-to-char ratio for prose/code.
-    Estimates only need to be within ~5%, not exact.
+    """Return a gigatoken-backed tiktoken-compatible encoder for accurate token
+    counts, or None if gigatoken is not installed. We use GPT-2's BPE encoding
+    as a proxy — its token-to-char ratio is comparable to cl100k_base for
+    prose/code, and estimates only need to be within ~5%, not exact.
     """
     try:
-        import tiktoken
-    except ImportError:
-        return None
-    try:
-        return tiktoken.get_encoding("cl100k_base")
-    except Exception:  # network failure on first-use download, etc.
+        import gigatoken as gt
+        return gt.Tokenizer("openai-community/gpt2").as_tiktoken()
+    except Exception:
         return None
 
 
-# Cached at import time. None if tiktoken is unavailable; consumers must handle.
+# Cached at import time. None if gigatoken is unavailable; consumers must handle.
 _TOKENIZER = _get_tokenizer()
 
 BACKENDS: dict[str, dict] = {
@@ -1620,8 +1616,8 @@ def extract_files_direct(
 def _estimate_file_tokens(unit: "Path | FileSlice") -> int:
     """Estimate the prompt-token cost of a file or slice under `_read_files` rules.
 
-    Uses tiktoken (`cl100k_base`) when available for accurate counts. Falls back
-    to the chars/4 heuristic if tiktoken is not installed. Both paths cap at
+    Uses gigatoken when available for accurate counts. Falls back
+    to the chars/4 heuristic if gigatoken is not installed. Both paths cap at
     `_FILE_CHAR_CAP` to match `_read_files`'s truncation, plus a constant for
     the wrapper. Returns 0 for unreadable paths so they don't blow up packing.
     """
@@ -1634,7 +1630,7 @@ def _estimate_file_tokens(unit: "Path | FileSlice") -> int:
             content = read_slice_text(unit)[:_FILE_CHAR_CAP]
         except OSError:
             return 0
-        return len(_TOKENIZER.encode(content)) + (_PER_FILE_OVERHEAD_CHARS // _CHARS_PER_TOKEN)
+        return len(_TOKENIZER.encode(content, allowed_special="all")) + (_PER_FILE_OVERHEAD_CHARS // _CHARS_PER_TOKEN)
 
     path = unit
     # Raster images are not read as text; a vision model bills them at a roughly
@@ -1653,7 +1649,7 @@ def _estimate_file_tokens(unit: "Path | FileSlice") -> int:
         content = path.read_text(encoding="utf-8", errors="replace")[:_FILE_CHAR_CAP]
     except OSError:
         return 0
-    return len(_TOKENIZER.encode(content)) + (_PER_FILE_OVERHEAD_CHARS // _CHARS_PER_TOKEN)
+    return len(_TOKENIZER.encode(content, allowed_special="all")) + (_PER_FILE_OVERHEAD_CHARS // _CHARS_PER_TOKEN)
 
 
 def _pack_chunks_by_tokens(
