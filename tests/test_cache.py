@@ -1134,3 +1134,38 @@ def test_prompt_file_reflects_edited_spec(tmp_path):
     _os.utime(spec, ns=(0, 0))  # force a distinct stat signature
     _, _, _, uncached = check_semantic_cache([str(f)], root=tmp_path, prompt_file=str(spec))
     assert uncached == [str(f)], "an edited spec must invalidate, not reuse the memo"
+
+
+def test_ast_structural_semantic_cache_hit(tmp_path):
+    """Test that changing comments/whitespace in a code file still hits semantic cache via AST hash."""
+    from graphify.cache import save_cached, load_cached, file_hash, cache_dir
+    
+    # 1. Create a Python file
+    f = tmp_path / "mod.py"
+    f.write_text("def hello():\n    print('world')\n", encoding="utf-8")
+    
+    # Save a fake semantic result for it
+    dummy_semantic = {"nodes": [{"id": "hello_func", "source_file": "mod.py"}], "edges": []}
+    save_cached(f, dummy_semantic, root=tmp_path, kind="semantic")
+    
+    # 2. Check direct cache hit (raw content hash matches)
+    hit1 = load_cached(f, root=tmp_path, kind="semantic")
+    assert hit1 is not None
+    assert hit1["nodes"][0]["id"] == "hello_func"
+    
+    # 3. Change comments and whitespace (modifies file content hash but NOT the AST)
+    f.write_text("# This is a comment\n\ndef hello():\n    # Inner comment\n    print('world')\n\n# Trailing comment\n", encoding="utf-8")
+    
+    # First, verify raw content hash has changed
+    new_hash = file_hash(f, tmp_path)
+    semantic_dir = cache_dir(tmp_path, "semantic")
+    assert not (semantic_dir / f"{new_hash}.json").exists(), "raw hash file must not exist yet"
+    
+    # 4. Check AST structural cache hit!
+    hit2 = load_cached(f, root=tmp_path, kind="semantic")
+    assert hit2 is not None, "must hit semantic cache via AST structural match"
+    assert hit2["nodes"][0]["id"] == "hello_func"
+    
+    # 5. Verify self-healing: the raw hash file must now exist
+    assert (semantic_dir / f"{new_hash}.json").exists(), "self-healing must have written the raw hash file"
+

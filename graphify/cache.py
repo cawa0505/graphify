@@ -482,6 +482,82 @@ def cache_dir(root: Path = Path("."), kind: str = "ast",
     return d
 
 
+def _compute_ast_structure_hash(ast_result: dict) -> str:
+    """Compute a stable hash based only on AST node structure, ignoring locations."""
+    cleaned_nodes = []
+    for node in ast_result.get("nodes", []):
+        if isinstance(node, dict):
+            cleaned_node = {k: v for k, v in node.items() if k not in ("source_location", "line")}
+            cleaned_nodes.append(cleaned_node)
+        
+    cleaned_edges = []
+    for edge in ast_result.get("edges", []):
+        if isinstance(edge, dict):
+            cleaned_edge = {k: v for k, v in edge.items() if k not in ("source_location", "line")}
+            cleaned_edges.append(cleaned_edge)
+        
+    cleaned_hyperedges = []
+    for h in ast_result.get("hyperedges", []):
+        if isinstance(h, dict):
+            cleaned_h = {k: v for k, v in h.items() if k not in ("source_location", "line")}
+            cleaned_hyperedges.append(cleaned_h)
+        
+    cleaned_nodes.sort(key=lambda x: str(x.get("id", "")))
+    cleaned_edges.sort(key=lambda x: (str(x.get("source", "")), str(x.get("target", "")), str(x.get("relation", ""))))
+    cleaned_hyperedges.sort(key=lambda x: str(x.get("nodes", [])))
+    
+    structure = {
+        "nodes": cleaned_nodes,
+        "edges": cleaned_edges,
+        "hyperedges": cleaned_hyperedges,
+    }
+    
+    serialized = json.dumps(structure, sort_keys=True)
+    import hashlib
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _compute_file_ast_hash(path: Path, root: Path, cache_root: Path | None = None) -> str | None:
+    """Compute structural AST hash of a file, using cached AST if available, otherwise parsing."""
+    # Only compute AST hash for code files (e.g. not .md or other documents)
+    from graphify.detect import CODE_EXTENSIONS
+    if path.suffix.lower() not in CODE_EXTENSIONS:
+        return None
+
+    from graphify.extract import _get_extractor
+    extractor = _get_extractor(path)
+    if extractor is None:
+        return None
+        
+    try:
+        h = file_hash(path, root, cache_root=cache_root)
+    except OSError:
+        return None
+        
+    location = cache_root if cache_root is not None else root
+    ast_dir = cache_dir(location, "ast")
+    ast_entry = ast_dir / f"{h}.json"
+    
+    ast_result = None
+    if ast_entry.exists():
+        try:
+            ast_result = json.loads(ast_entry.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    if ast_result is None:
+        try:
+            from graphify.extract import _safe_extract_with_xaml_root
+            ast_result = _safe_extract_with_xaml_root(extractor, path, root)
+        except Exception:
+            return None
+            
+    if not ast_result or "nodes" not in ast_result:
+        return None
+        
+    return _compute_ast_structure_hash(ast_result)
+
+
 def load_cached(path: Path, root: Path = Path("."), kind: str = "ast",
                 cache_root: Path | None = None, prompt: "str | Path | None" = None,
                 prompt_file: "str | Path | None" = None,
@@ -554,6 +630,33 @@ def load_cached(path: Path, root: Path = Path("."), kind: str = "ast",
         if isinstance(result, dict):
             _absolutize_source_files_in(result, root)
         return result
+
+    # --- Phase 2: AST structural cache lookup (Semantic only) ---
+    if kind.startswith("semantic") or kind.startswith("semantic-deep"):
+        try:
+            ast_hash = _compute_file_ast_hash(path, root, cache_root=cache_root)
+            if ast_hash is not None:
+                target_dir = cache_dir(location, kind, prompt_fp)
+                ast_entry = target_dir / f"ast-{ast_hash}.json"
+                if ast_entry.exists():
+                    try:
+                        result = json.loads(ast_entry.read_text(encoding="utf-8"))
+                        if not allow_partial and isinstance(result, dict) and result.get("partial"):
+                            return None
+                        # Self-heal: save to raw file_hash target so next lookup hits Tier 1 immediately!
+                        try:
+                            save_cached(path, result, root, kind=kind, cache_root=cache_root,
+                                        prompt=prompt, prompt_file=prompt_file)
+                        except Exception:
+                            pass
+                        if isinstance(result, dict):
+                            _absolutize_source_files_in(result, root)
+                        return result
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     return None
 
 
@@ -614,6 +717,17 @@ def save_cached(path: Path, result: dict, root: Path = Path("."), kind: str = "a
             import shutil
             shutil.copy2(tmp_path, entry)
             os.unlink(tmp_path)
+
+        # --- Phase 2: Save copy keyed by AST hash (Semantic only) ---
+        if kind.startswith("semantic") or kind.startswith("semantic-deep"):
+            try:
+                ast_hash = _compute_file_ast_hash(p, root, cache_root=cache_root)
+                if ast_hash is not None:
+                    ast_entry = target_dir / f"ast-{ast_hash}.json"
+                    import shutil
+                    shutil.copy2(entry, ast_entry)
+            except Exception:
+                pass
     except Exception:
         try:
             os.close(fd)
@@ -706,7 +820,7 @@ def prune_semantic_cache(root: Path, live_hashes: set[str]) -> int:
         if not semantic_dir.is_dir():
             continue
         for entry in semantic_dir.glob("**/*.json"):
-            if entry.stem in live_hashes:
+            if entry.name.startswith("ast-") or entry.stem in live_hashes:
                 continue
             try:
                 entry.unlink()
