@@ -30,14 +30,29 @@ Custom fork optimized with compiled C & Rust engines to bypass Python execution 
 
 ## Install
 
+### 1. From PyPI (Recommended)
+
+```bash
+# Standard installation
+pip install graphify-opt
+
+# Using uv (fastest)
+uv pip install graphify-opt
+
+# Install with SQL support (Tree-sitter SQL)
+pip install "graphify-opt[sql]"
+
+# Install with Gemini LLM support
+pip install "graphify-opt[gemini]"
+```
+
+### 2. From GitHub (Development/Edge)
+
 ```bash
 # install from GitHub
 pip install git+https://github.com/cawa0505/graphify@v8
 
-# using uv
-uv pip install git+https://github.com/cawa0505/graphify@v8
-
-# install with SQL support (Tree-sitter SQL)
+# install with SQL support from GitHub
 pip install "graphify[sql] @ git+https://github.com/cawa0505/graphify@v8"
 ```
 
