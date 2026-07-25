@@ -1,4 +1,4 @@
-# GraphifyCustom
+# graphify-opt
 
 Based on [graphify](https://github.com/Graphify-Labs/graphify) v0.9.25 by Safi Shamsi (Apache-2.0 + MIT).  
 **Upstream:** https://github.com/Graphify-Labs/graphify

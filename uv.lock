@@ -1194,7 +1194,7 @@ wheels = [
 ]
 
 [[package]]
-name = "graphifyy"
+name = "graphify-opt"
 version = "0.9.25"
 source = { editable = "." }
 dependencies = [
