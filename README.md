@@ -19,7 +19,7 @@ pip install git+https://github.com/cawa0505/graphify@v8
 uv pip install git+https://github.com/cawa0505/graphify@v8
 ```
 
-Requires Python 3.14+. Tree-sitter SQL support: `pip install graphify[sql]`.
+Requires Python 3.10+. Tree-sitter SQL support: `pip install graphify[sql]`.
 
 ---
 
