@@ -5,6 +5,25 @@ Based on [graphify](https://github.com/Graphify-Labs/graphify) v0.9.25 by Safi S
 
 Custom fork with advanced patches for robust, high-performance execution: structured configuration, automatic key rotation, native AST acceleration, structural incremental caching, and token-saving skeleton pruning.
 
+## Table of Contents
+
+- [Install](#install)
+- [1. Robust Configuration & API Key Resilience](#1-robust-configuration--api-key-resilience)
+  - [Structured Configuration (`~/.graphify/config.json`)](#structured-configuration-graphifyconfigjson)
+  - [Automatic API Key Rotation](#automatic-api-key-rotation)
+  - [429/503 Rate-Limit Retry](#429503-rate-limit-retry)
+- [2. Local AST Parsing Acceleration](#2-local-ast-parsing-acceleration)
+  - [Tree-Sitter Native C Queries](#tree-sitter-native-c-queries)
+  - [JS/TS Loop Unification](#jsts-loop-unification)
+  - [Rust-Compiled gigatoken Engine](#rust-compiled-gigatoken-engine)
+  - [Adaptive JSON Engine (orjson)](#adaptive-json-engine-orjson)
+  - [Double-Layer Memoized Symbol Resolution](#double-layer-memoized-symbol-resolution)
+- [3. LLM Cost & Token Optimizations](#3-llm-cost--token-optimizations)
+  - [Skeleton-Based AST Code Pruning](#skeleton-based-ast-code-pruning)
+  - [AST-Based Incremental Caching (3-Tier Cache)](#ast-based-incremental-caching-3-tier-cache)
+- [4. CLI & Compatibility Patches](#4-cli--compatibility-patches)
+- [Backward Compatibility & Seamless Migration](#backward-compatibility--seamless-migration)
+
 ## Install
 
 ```bash
