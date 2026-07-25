@@ -3,7 +3,7 @@
 Based on [graphify](https://github.com/Graphify-Labs/graphify) v0.9.25 by Safi Shamsi (Apache-2.0 + MIT).  
 **Upstream:** https://github.com/Graphify-Labs/graphify
 
-Custom fork with advanced patches for robust, high-performance execution: structured configuration, automatic key rotation, native AST acceleration, structural incremental caching, and token-saving skeleton pruning.
+Custom fork optimized with compiled C & Rust engines to bypass Python execution bottlenecks, featuring structured configuration, automatic key rotation, native S-expression queries, structural incremental caching, and token-saving skeleton pruning.
 
 ## Table of Contents
 
