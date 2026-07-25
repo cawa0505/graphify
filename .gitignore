@@ -7,3 +7,4 @@ build/
 .graphify/
 graphify-out/
 *.egg
+.opencode/
