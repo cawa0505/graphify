@@ -32,14 +32,28 @@ Custom fork optimized with compiled C & Rust engines to bypass Python execution 
 
 ### 1. From PyPI (Recommended)
 
+#### Option A: Global Executable (Modern & Cleanest)
+
+For CLI tools like `graphify`, using `uv`'s dedicated tool manager is highly recommended as it installs the tool in an isolated virtual environment and exposes the executable globally without polluting your system Python:
+
 ```bash
-# Standard installation
+# Install globally in an isolated environment (Recommended)
+uv tool install graphify-opt
+
+# Run instantly on-the-fly without installing
+uvx --from graphify-opt graphify update .
+```
+
+#### Option B: Standard pip (into Active Environment)
+
+```bash
+# Standard pip installation
 pip install graphify-opt
 
-# Using uv (fastest)
+# Using uv pip (active virtualenv)
 uv pip install graphify-opt
 
-# Install with SQL support (Tree-sitter SQL)
+# Install with SQL support
 pip install "graphify-opt[sql]"
 
 # Install with Gemini LLM support
