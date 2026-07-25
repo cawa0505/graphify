@@ -226,6 +226,30 @@ def test_extract_writes_to_graphify_out_env(tmp_path):
     assert keys == ["m.py"], keys
 
 
+def test_extract_auto_updates_gitignore(tmp_path):
+    """Assert that `graphify extract` automatically creates or updates .gitignore with graphify-out/ and .graphify/."""
+    (tmp_path / "m.py").write_text("def foo():\n    return 42\n")
+    
+    r = _run(["extract", "."], tmp_path)
+    assert r.returncode == 0, r.stderr
+    
+    gitignore = tmp_path / ".gitignore"
+    assert gitignore.exists()
+    content = gitignore.read_text(encoding="utf-8")
+    assert "graphify-out/" in content
+    assert ".graphify/" in content
+
+    # Test updating existing .gitignore
+    gitignore.write_text("my-ignored-file.txt\n", encoding="utf-8")
+    r2 = _run(["extract", "."], tmp_path)
+    assert r2.returncode == 0, r2.stderr
+    
+    content2 = gitignore.read_text(encoding="utf-8")
+    assert "my-ignored-file.txt" in content2
+    assert "graphify-out/" in content2
+    assert ".graphify/" in content2
+
+
 # ── graphify path ────────────────────────────────────────────────────────────
 
 def test_path_runs_without_error(tmp_path):

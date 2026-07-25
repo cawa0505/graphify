@@ -2452,6 +2452,37 @@ def dispatch_command(cmd: str) -> None:
             print("Usage: graphify global [add|remove|list|path]", file=sys.stderr); sys.exit(1)
 
     elif cmd == "extract":
+        def _auto_update_gitignore(out_root: Path) -> None:
+            try:
+                gitignore_path = out_root / ".gitignore"
+                ignore_line = "graphify-out/"
+                dot_ignore_line = ".graphify/"
+                
+                lines_to_add = []
+                if gitignore_path.exists():
+                    content = gitignore_path.read_text(encoding="utf-8", errors="ignore")
+                    existing_lines = [line.strip().rstrip("/") for line in content.splitlines()]
+                    if "graphify-out" not in existing_lines:
+                        lines_to_add.append(ignore_line)
+                    if ".graphify" not in existing_lines:
+                        lines_to_add.append(dot_ignore_line)
+                        
+                    if lines_to_add:
+                        with gitignore_path.open("a", encoding="utf-8") as f:
+                            if not content.endswith("\n") and content:
+                                f.write("\n")
+                            for line in lines_to_add:
+                                f.write(f"{line}\n")
+                        print(f"[graphify] Automatically added {', '.join(lines_to_add)} to .gitignore")
+                else:
+                    with gitignore_path.open("w", encoding="utf-8") as f:
+                        f.write("# graphify outputs\n")
+                        f.write(f"{ignore_line}\n")
+                        f.write(f"{dot_ignore_line}\n")
+                    print(f"[graphify] Automatically created .gitignore with graphify-out/ and .graphify/")
+            except Exception:
+                pass
+
         # Headless full-pipeline extraction for CI / scripts (#698).
         # Runs detect -> AST extraction on code -> semantic LLM extraction on
         # docs/papers/images -> merge -> build -> cluster -> write outputs.
@@ -2655,6 +2686,7 @@ def dispatch_command(cmd: str) -> None:
         out_root = (out_dir.resolve() if out_dir else target)
         graphify_out = out_root / _GRAPHIFY_OUT
         graphify_out.mkdir(parents=True, exist_ok=True)
+        _auto_update_gitignore(out_root)
         # Persist corpus-shaping options so later update/watch/hook rebuilds
         # use the same file set as the initial extraction (#1886).
         from graphify.watch import (
