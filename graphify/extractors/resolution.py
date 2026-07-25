@@ -1029,7 +1029,7 @@ def _parse_js_tree(path: Path):
             import tree_sitter_javascript as tsjavascript
             language = Language(tsjavascript.language())
         parser = Parser(language)
-        return source, parser.parse(source).root_node
+        return source, parser.parse(source).root_node, use_ts
     except Exception:
         return None
 
@@ -1370,154 +1370,169 @@ def _collect_js_symbol_resolution_facts(paths: list[Path], facts: _SymbolResolut
     if not js_paths:
         return
 
-    trees: dict[Path, tuple[bytes, object]] = {}
+    import tree_sitter_javascript as tsjavascript
+    import tree_sitter_typescript as tstypescript
+    from tree_sitter import Language, Query, QueryCursor
+
+    lang_js = Language(tsjavascript.language())
+    lang_ts = Language(tstypescript.language_typescript())
+
+    query_js_calls = Query(lang_js, '(call_expression) @call')
+    query_ts_calls = Query(lang_ts, '(call_expression) @call')
+
+    cursor_js_calls = QueryCursor(query_js_calls)
+    cursor_ts_calls = QueryCursor(query_ts_calls)
+
+    trees: dict[Path, tuple[bytes, object, bool]] = {}
 
     for path in js_paths:
         resolved_path = path.resolve()
         parsed = _parse_js_tree(path)
         if parsed is None:
             continue
-        source, root_node = parsed
-        trees[resolved_path] = parsed
+        source, root_node, use_ts = parsed
+        trees[resolved_path] = (source, root_node, use_ts)
 
+        stem = _file_stem(path)
+
+        # Single walk of the root node to extract Declarations, Imports, Aliases, Exports, and Classes
         for node in _walk_js_tree(root_node):
+            # 1. Declarations & Imports
             if node.type == "export_statement":
                 for name in _js_exported_declaration_names(node, source):
                     facts.declarations.append(
                         _SymbolDeclarationFact(path, name, node.start_point[0] + 1)
                     )
 
-            if node.type != "import_statement":
-                continue
-            raw_module = _js_module_specifier(node, source)
-            if raw_module is None:
-                continue
-            target_path = _resolve_js_module_path(raw_module, path.parent)
-            if target_path is None:
-                continue
-            target_path = target_path.resolve()
-            for imported_name, local_name in _js_named_specifiers(node, source, "import_specifier"):
-                facts.imports.append(
-                    _SymbolImportFact(
-                        path,
-                        local_name,
-                        target_path,
-                        imported_name,
-                        node.start_point[0] + 1,
-                    )
-                )
-            default_local = _js_default_import_name(node, source)
-            if default_local is not None:
-                facts.imports.append(
-                    _SymbolImportFact(
-                        path,
-                        default_local,
-                        target_path,
-                        "default",
-                        node.start_point[0] + 1,
-                    )
-                )
+            if node.type == "import_statement":
+                raw_module = _js_module_specifier(node, source)
+                if raw_module is not None:
+                    target_path = _resolve_js_module_path(raw_module, path.parent)
+                    if target_path is not None:
+                        target_path = target_path.resolve()
+                        for imported_name, local_name in _js_named_specifiers(node, source, "import_specifier"):
+                            facts.imports.append(
+                                _SymbolImportFact(
+                                    path,
+                                    local_name,
+                                    target_path,
+                                    imported_name,
+                                    node.start_point[0] + 1,
+                                )
+                            )
+                        default_local = _js_default_import_name(node, source)
+                        if default_local is not None:
+                            facts.imports.append(
+                                _SymbolImportFact(
+                                    path,
+                                    default_local,
+                                    target_path,
+                                    "default",
+                                    node.start_point[0] + 1,
+                                )
+                            )
 
-        for node in _walk_js_tree(root_node):
+            # 2. Aliases
             for alias, target in _js_lexical_aliases(node, source):
                 facts.aliases.append(
                     _SymbolAliasFact(path, alias, target, node.start_point[0] + 1)
                 )
 
-    for path in js_paths:
-        resolved_path = path.resolve()
-        parsed = trees.get(resolved_path)
-        if parsed is None:
-            continue
-        source, root_node = parsed
-
-        for node in _walk_js_tree(root_node):
-            if node.type != "export_statement":
-                continue
-
-            raw_module = _js_module_specifier(node, source)
-            export_clause = _js_export_clause(node)
-            if raw_module is not None:
-                target_path = _resolve_js_module_path(raw_module, path.parent)
-                if target_path is None:
-                    continue
-                target_path = target_path.resolve()
-                namespace_name = _js_namespace_export_name(node, source)
-                if namespace_name is not None:
-                    facts.namespace_exports.append(
-                        _NamespaceExportFact(
-                            path,
-                            namespace_name,
-                            target_path,
-                            node.start_point[0] + 1,
-                        )
-                    )
-                elif _js_export_statement_is_star(node):
-                    facts.star_exports.append(
-                        _StarExportFact(path, target_path, node.start_point[0] + 1)
-                    )
-                if export_clause is not None:
-                    for original_name, exported_name in _js_named_specifiers(
-                        export_clause, source, "export_specifier"
-                    ):
-                        facts.exports.append(
-                            _SymbolExportFact(
-                                path,
-                                exported_name,
-                                node.start_point[0] + 1,
-                                target_path=target_path,
-                                target_name=original_name,
+            # 3. Exports
+            if node.type == "export_statement":
+                raw_module = _js_module_specifier(node, source)
+                export_clause = _js_export_clause(node)
+                if raw_module is not None:
+                    target_path = _resolve_js_module_path(raw_module, path.parent)
+                    if target_path is not None:
+                        target_path = target_path.resolve()
+                        namespace_name = _js_namespace_export_name(node, source)
+                        if namespace_name is not None:
+                            facts.namespace_exports.append(
+                                _NamespaceExportFact(
+                                    path,
+                                    namespace_name,
+                                    target_path,
+                                    node.start_point[0] + 1,
+                                )
                             )
-                        )
-                continue
+                        elif _js_export_statement_is_star(node):
+                            facts.star_exports.append(
+                                _StarExportFact(path, target_path, node.start_point[0] + 1)
+                            )
+                        if export_clause is not None:
+                            for original_name, exported_name in _js_named_specifiers(
+                                export_clause, source, "export_specifier"
+                            ):
+                                facts.exports.append(
+                                    _SymbolExportFact(
+                                        path,
+                                        exported_name,
+                                        node.start_point[0] + 1,
+                                        target_path=target_path,
+                                        target_name=original_name,
+                                    )
+                                )
+                else:
+                    if export_clause is not None:
+                        for local_name, exported_name in _js_named_specifiers(
+                            export_clause, source, "export_specifier"
+                        ):
+                            facts.exports.append(
+                                _SymbolExportFact(
+                                    path,
+                                    exported_name,
+                                    node.start_point[0] + 1,
+                                    local_name=local_name,
+                                )
+                            )
+                    else:
+                        for exported_name in _js_exported_declaration_names(node, source):
+                            facts.exports.append(
+                                _SymbolExportFact(
+                                    path,
+                                    exported_name,
+                                    node.start_point[0] + 1,
+                                    local_name=exported_name,
+                                )
+                            )
+                        default_name = _js_default_export_name(node, source)
+                        if default_name is not None:
+                            facts.exports.append(
+                                _SymbolExportFact(
+                                    path,
+                                    "default",
+                                    node.start_point[0] + 1,
+                                    local_name=default_name,
+                                )
+                            )
 
-            if export_clause is not None:
-                for local_name, exported_name in _js_named_specifiers(
-                    export_clause, source, "export_specifier"
-                ):
-                    facts.exports.append(
-                        _SymbolExportFact(
-                            path,
-                            exported_name,
-                            node.start_point[0] + 1,
-                            local_name=local_name,
-                        )
-                    )
-                continue
-
-            for exported_name in _js_exported_declaration_names(node, source):
-                facts.exports.append(
-                    _SymbolExportFact(
-                        path,
-                        exported_name,
-                        node.start_point[0] + 1,
-                        local_name=exported_name,
-                    )
-                )
-
-            # `export default class Foo {}` / `export default foo` exposes the
-            # symbol under the name "default"; record that so a default import
-            # (imported_name="default") resolves to it. `export { X as default }`
-            # is already handled via the export_clause path above.
-            default_name = _js_default_export_name(node, source)
-            if default_name is not None:
-                facts.exports.append(
-                    _SymbolExportFact(
-                        path,
-                        "default",
-                        node.start_point[0] + 1,
-                        local_name=default_name,
-                    )
-                )
+            # 4. Classes
+            if node.type in (
+                "class_declaration",
+                "abstract_class_declaration",
+                "interface_declaration",
+            ):
+                name_node = node.child_by_field_name("name")
+                if name_node is not None:
+                    class_name = _read_text(name_node, source)
+                    if class_name:
+                        class_nid = _make_id(stem, class_name)
+                        _ts_walk_class_members(node, source, path, class_nid, facts)
 
     for path in js_paths:
         resolved_path = path.resolve()
         parsed = trees.get(resolved_path)
         if parsed is None:
             continue
-        source, root_node = parsed
+        source, root_node, use_ts = parsed
+
+        cursor_calls = cursor_ts_calls if use_ts else cursor_js_calls
+        query_calls = query_ts_calls if use_ts else query_js_calls
+
         for source_id, body in _js_top_level_function_bodies(path, root_node, source):
-            for node in _walk_js_tree(body):
+            captures = cursor_calls.captures(body)  # type: ignore
+            for node in captures.get("call", []):
                 imported_name = _js_call_identifier(node, source)
                 if imported_name is None:
                     continue
@@ -1531,29 +1546,6 @@ def _collect_js_symbol_resolution_facts(paths: list[Path], facts: _SymbolResolut
                         node.start_point[0] + 1,
                     )
                 )
-
-    for path in js_paths:
-        resolved_path = path.resolve()
-        parsed = trees.get(resolved_path)
-        if parsed is None:
-            continue
-        source, root_node = parsed
-        stem = _file_stem(path)
-        for node in _walk_js_tree(root_node):
-            if node.type not in (
-                "class_declaration",
-                "abstract_class_declaration",
-                "interface_declaration",
-            ):
-                continue
-            name_node = node.child_by_field_name("name")
-            if name_node is None:
-                continue
-            class_name = _read_text(name_node, source)
-            if not class_name:
-                continue
-            class_nid = _make_id(stem, class_name)
-            _ts_walk_class_members(node, source, path, class_nid, facts)
 
 def _parse_python_tree(path: Path):
     try:
@@ -1695,6 +1687,13 @@ def _collect_python_symbol_resolution_facts(
     if not py_paths:
         return
 
+    import tree_sitter_python as tspython
+    from tree_sitter import Language, Query, QueryCursor
+
+    lang = Language(tspython.language())
+    query_imports = Query(lang, '(import_from_statement) @import_from')
+    cursor_imports = QueryCursor(query_imports)
+
     trees: dict[Path, tuple[bytes, object]] = {}
     for path in py_paths:
         parsed = _parse_python_tree(path)
@@ -1703,9 +1702,8 @@ def _collect_python_symbol_resolution_facts(
         source, root_node = parsed
         trees[path.resolve()] = parsed
 
-        for node in _walk_python_tree(root_node):
-            if node.type != "import_from_statement":
-                continue
+        captures = cursor_imports.captures(root_node)
+        for node in captures.get("import_from", []):
             module = _python_import_from_module(node, source)
             if module is None:
                 continue
@@ -1741,13 +1739,17 @@ def _collect_python_symbol_resolution_facts(
                         )
                     )
 
+    query_calls = Query(lang, '(call function: (identifier)) @call')
+    cursor_calls = QueryCursor(query_calls)
+
     for path in py_paths:
         parsed = trees.get(path.resolve())
         if parsed is None:
             continue
         source, root_node = parsed
         for source_id, body in _python_top_level_function_bodies(path, root_node, source):
-            for node in _walk_python_tree(body):
+            captures = cursor_calls.captures(body)  # type: ignore
+            for node in captures.get("call", []):
                 imported_name = _python_call_identifier(node, source)
                 if imported_name is None:
                     continue
