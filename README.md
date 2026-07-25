@@ -1,5 +1,8 @@
 # graphify-opt
 
+[![PyPI version](https://badge.fury.io/py/graphify-opt.svg)](https://pypi.org/project/graphify-opt/)
+[![Downloads](https://pepy.tech/badge/graphify-opt)](https://pepy.tech/project/graphify-opt)
+
 Based on [graphify](https://github.com/Graphify-Labs/graphify) v0.9.25 by Safi Shamsi (Apache-2.0 + MIT).  
 **Upstream:** https://github.com/Graphify-Labs/graphify
 
