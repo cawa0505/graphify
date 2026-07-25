@@ -8,14 +8,10 @@ Custom fork with advanced patches for robust, high-performance execution: struct
 ## Install
 
 ```bash
-# pip (editable, local)
-pip install --user --break-system-packages -e /path/to/GraphifyCustom
-
-# uv (editable, local)
-uv pip install --user -e /path/to/GraphifyCustom
-
-# remote (from GitHub)
+# install from GitHub
 pip install git+https://github.com/cawa0505/graphify@v8
+
+# using uv
 uv pip install git+https://github.com/cawa0505/graphify@v8
 ```
 
