@@ -862,3 +862,58 @@ def test_pack_chunks_with_special_token_doc_does_not_crash(tmp_path):
     code = tmp_path / "code.py"; code.write_text("def f():\n    return 1\n")
     chunks = _pack_chunks_by_tokens([doc, code], token_budget=60_000)
     assert chunks  # produced at least one chunk, no exception
+
+
+# ---- Phase 3: Skeleton-based LLM Reduction Tests ----
+
+def test_code_skeletonization_reduces_token_budget(tmp_path):
+    """Verify that skeletonization reduces the estimated token count of code files."""
+    import graphify.llm as llm
+    
+    # Define a large python file with a tiny function signature but massive body
+    large_code = (
+        "def perform_heavy_computation(a, b, c):\n"
+        '    """This computes some values."""\n'
+        "    result = a + b * c\n"
+        "    for i in range(10000):\n"
+        "        result += i\n"
+        "        result *= 1.01\n"
+        "        print('Current state:', result)\n"
+        "    return result\n"
+    )
+    
+    # 1. Test skeletonization directly
+    skeleton = llm._skeletonize_code(large_code, ".py")
+    assert "def perform_heavy_computation" in skeleton
+    assert "result = a + b * c" not in skeleton
+    assert "print('Current state:', result)" not in skeleton
+    assert "..." in skeleton
+    
+    # 2. Test JS skeletonization
+    js_code = (
+        "function handleEvent(event) {\n"
+        "    console.log('Got event:', event);\n"
+        "    if (event.type === 'click') {\n"
+        "        doSomething();\n"
+        "    }\n"
+        "}\n"
+    )
+    js_skeleton = llm._skeletonize_code(js_code, ".js")
+    assert "function handleEvent" in js_skeleton
+    assert "console.log" not in js_skeleton
+    assert "{ ... }" in js_skeleton
+
+    # 3. Verify that _estimate_file_tokens calculates a dramatically smaller token cost
+    f_large = tmp_path / "large_file.py"
+    f_large.write_text(large_code, encoding="utf-8")
+    
+    f_small = tmp_path / "small_file.py"
+    # Small file that represents the manual skeleton
+    f_small.write_text("def perform_heavy_computation(a, b, c):\n    ...\n", encoding="utf-8")
+    
+    tokens_large = llm._estimate_file_tokens(f_large)
+    tokens_small = llm._estimate_file_tokens(f_small)
+    
+    # The estimated tokens of the large file should be exactly equal to the skeletonized version!
+    assert tokens_large == tokens_small
+    assert tokens_large < 80  # Should be extremely small now!

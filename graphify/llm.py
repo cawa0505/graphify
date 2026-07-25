@@ -589,6 +589,146 @@ def _wrap_untrusted(rel: str, content: str) -> str:
     )
 
 
+def _skeletonize_code(content: str, suffix: str) -> str:
+    """Skeletonize code by replacing function/method/class bodies with ... or pass, preserving signatures and docstrings."""
+    ext = suffix.lower()
+    
+    # 1. Map file extensions to tree-sitter languages and queries
+    lang_name = None
+    query_str = None
+    
+    if ext == ".py":
+        lang_name = "python"
+        query_str = "(function_definition body: (block) @body)"
+    elif ext in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"):
+        lang_name = "typescript" if "ts" in ext else "javascript"
+        query_str = """
+            (function_declaration body: (statement_block) @body)
+            (method_definition body: (statement_block) @body)
+            (arrow_function body: (statement_block) @body)
+        """
+    elif ext == ".go":
+        lang_name = "go"
+        query_str = """
+            (function_declaration body: (block) @body)
+            (method_declaration body: (block) @body)
+        """
+    elif ext == ".rs":
+        lang_name = "rust"
+        query_str = "(function_item body: (block) @body)"
+    elif ext in (".c", ".h", ".cpp", ".cc", ".cxx", ".hpp"):
+        lang_name = "cpp" if "cpp" in ext or "cc" in ext or "cxx" in ext else "c"
+        query_str = "(function_definition body: (compound_statement) @body)"
+    elif ext == ".java":
+        lang_name = "java"
+        query_str = "(method_declaration body: (block) @body)"
+    elif ext == ".php":
+        lang_name = "php"
+        query_str = "(function_definition body: (compound_statement) @body)"
+    elif ext in (".kt", ".kts"):
+        lang_name = "kotlin"
+        query_str = "(function_declaration body: (function_body) @body)"
+    elif ext == ".swift":
+        lang_name = "swift"
+        query_str = "(function_declaration body: (code_block) @body)"
+    
+    if not lang_name or not query_str:
+        return content
+        
+    try:
+        from tree_sitter import Parser, Language, Query, QueryCursor
+        
+        # Load the tree-sitter language dynamically
+        if lang_name == "python":
+            import tree_sitter_python as tslang
+        elif lang_name == "javascript":
+            import tree_sitter_javascript as tslang
+        elif lang_name == "typescript":
+            import tree_sitter_typescript as tslang
+        elif lang_name == "go":
+            import tree_sitter_go as tslang
+        elif lang_name == "rust":
+            import tree_sitter_rust as tslang
+        elif lang_name == "cpp":
+            import tree_sitter_cpp as tslang
+        elif lang_name == "c":
+            import tree_sitter_c as tslang
+        elif lang_name == "java":
+            import tree_sitter_java as tslang
+        elif lang_name == "php":
+            import tree_sitter_php as tslang
+        elif lang_name == "kotlin":
+            import tree_sitter_kotlin as tslang
+        elif lang_name == "swift":
+            import tree_sitter_swift as tslang
+        else:
+            return content
+            
+        # Obtain the Language object dynamically depending on the module
+        lang_fn = (
+            getattr(tslang, "language_python", None) or
+            getattr(tslang, "language_javascript", None) or
+            getattr(tslang, "language_typescript", None) or
+            getattr(tslang, "language_go", None) or
+            getattr(tslang, "language_rust", None) or
+            getattr(tslang, "language_cpp", None) or
+            getattr(tslang, "language_c", None) or
+            getattr(tslang, "language_java", None) or
+            getattr(tslang, "language_php", None) or
+            getattr(tslang, "language_kotlin", None) or
+            getattr(tslang, "language_swift", None) or
+            getattr(tslang, "language", None)
+        )
+        if lang_fn is None:
+            return content
+        language = Language(lang_fn())
+        parser = Parser(language)
+        
+        # Parse content
+        source_bytes = content.encode("utf-8")
+        tree = parser.parse(source_bytes)
+        root_node = tree.root_node
+        
+        # Execute query
+        query = Query(language, query_str)
+        cursor = QueryCursor(query)
+        captures = cursor.captures(root_node)
+        
+        body_nodes = []
+        for name, nodes in captures.items():
+            if name == "body":
+                body_nodes.extend(nodes)
+                
+        if not body_nodes:
+            return content
+            
+        # Sort body nodes by start_byte descending
+        body_nodes.sort(key=lambda n: n.start_byte, reverse=True)
+        
+        result_bytes = bytearray(source_bytes)
+        for node in body_nodes:
+            start = node.start_byte
+            end = node.end_byte
+            
+            if lang_name == "python":
+                replacement = b"\n    ..."
+                result_bytes[start:end] = replacement
+            else:
+                if start < end and result_bytes[start] == ord("{") and result_bytes[end-1] == ord("}"):
+                    replacement = b"{ ... }"
+                    result_bytes[start:end] = replacement
+                else:
+                    replacement = b" ... "
+                    result_bytes[start:end] = replacement
+                    
+        return result_bytes.decode("utf-8")
+    except Exception as e:
+        # Fall back to raw content gracefully
+        import sys
+        print(f"[graphify] Skeletonization failed for {suffix}: {e}", file=sys.stderr)
+        return content
+
+
 def _read_files(units: "list[Path | FileSlice]", root: Path) -> str:
     """Return file/slice contents formatted for the extraction prompt.
 
@@ -614,6 +754,10 @@ def _read_files(units: "list[Path | FileSlice]", root: Path) -> str:
                 content = _file_to_text(p)
         except OSError:
             continue
+        # --- Phase 3: Skeleton-based LLM Reduction (Code files only) ---
+        from graphify.detect import CODE_EXTENSIONS
+        if p.suffix.lower() in CODE_EXTENSIONS:
+            content = _skeletonize_code(content, p.suffix)
         # Whole files are still capped (covers non-splittable large files like
         # code); slices are already bounded to the cap, so the cap is a no-op.
         parts.append(_wrap_untrusted(rel, content[:_FILE_CHAR_CAP]))
@@ -1621,34 +1765,27 @@ def _estimate_file_tokens(unit: "Path | FileSlice") -> int:
     `_FILE_CHAR_CAP` to match `_read_files`'s truncation, plus a constant for
     the wrapper. Returns 0 for unreadable paths so they don't blow up packing.
     """
-    if isinstance(unit, FileSlice):
-        # A slice's size is its char range (already ≤ _FILE_CHAR_CAP). Use the
-        # tokenizer on its text when available, else the chars/4 heuristic.
-        if _TOKENIZER is None:
-            return (min(unit.end - unit.start, _FILE_CHAR_CAP) + _PER_FILE_OVERHEAD_CHARS) // _CHARS_PER_TOKEN
-        try:
-            content = read_slice_text(unit)[:_FILE_CHAR_CAP]
-        except OSError:
-            return 0
-        return len(_TOKENIZER.encode(content, allowed_special="all")) + (_PER_FILE_OVERHEAD_CHARS // _CHARS_PER_TOKEN)
-
-    path = unit
-    # Raster images are not read as text; a vision model bills them at a roughly
-    # fixed token cost, so estimate by image count rather than (binary) byte size.
-    if _is_vision_image(path):
+    if not isinstance(unit, FileSlice) and _is_vision_image(unit):
         return _IMAGE_TOKEN_ESTIMATE
-    if _TOKENIZER is None:
-        try:
-            size = path.stat().st_size
-        except OSError:
-            return 0
-        chars = min(size, _FILE_CHAR_CAP) + _PER_FILE_OVERHEAD_CHARS
-        return chars // _CHARS_PER_TOKEN
 
     try:
-        content = path.read_text(encoding="utf-8", errors="replace")[:_FILE_CHAR_CAP]
+        if isinstance(unit, FileSlice):
+            content = read_slice_text(unit)[:_FILE_CHAR_CAP]
+        else:
+            content = unit.read_text(encoding="utf-8", errors="replace")[:_FILE_CHAR_CAP]
     except OSError:
         return 0
+
+    # --- Phase 3: Skeleton-based LLM Reduction (Code files only) ---
+    from graphify.detect import CODE_EXTENSIONS
+    path = unit_path(unit)
+    if path.suffix.lower() in CODE_EXTENSIONS:
+        content = _skeletonize_code(content, path.suffix)
+
+    if _TOKENIZER is None:
+        chars = len(content) + _PER_FILE_OVERHEAD_CHARS
+        return chars // _CHARS_PER_TOKEN
+
     return len(_TOKENIZER.encode(content, allowed_special="all")) + (_PER_FILE_OVERHEAD_CHARS // _CHARS_PER_TOKEN)
 
 
