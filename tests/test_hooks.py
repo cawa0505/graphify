@@ -330,6 +330,31 @@ def test_rebuild_bodies_with_graphify_root_are_valid_python():
         ast.parse(body)
 
 
+@pytest.mark.parametrize(
+    "name,body",
+    [("post-commit", _REBUILD_BODY_COMMIT), ("post-checkout", _REBUILD_BODY_CHECKOUT)],
+)
+def test_rebuild_bodies_arm_a_timeout_without_sigalrm(name, body):
+    """Windows has no signal.SIGALRM, so the #791 rebuild timeout never armed
+    there at all (#2148). The fallback has to sit in the else-branch of the
+    SIGALRM check rather than merely appear somewhere in the body, so that a
+    watchdog firing unconditionally or on every platform still fails here."""
+    fallbacks = [
+        node.orelse
+        for node in ast.walk(ast.parse(body))
+        if isinstance(node, ast.If) and "'SIGALRM'" in ast.dump(node.test) and node.orelse
+    ]
+    assert fallbacks, f"{name} has no else-branch for the missing-SIGALRM case (#2148)"
+    dumped = "".join(ast.dump(stmt) for stmt in fallbacks[0])
+    assert "attr='Timer'" in dumped, f"{name} fallback does not arm a threading.Timer (#2148)"
+    assert "attr='_exit'" in dumped, f"{name} fallback does not kill the stuck rebuild (#2148)"
+    # The fallback logs the timeout itself, because os._exit skips the except
+    # handler that reports it on the SIGALRM path. Its prefix has to match the
+    # rest of the body, or the same event reads differently per platform.
+    prefixes = set(re.findall(r"print\(f'\[([a-z ]+)\]", body))
+    assert len(prefixes) == 1, f"{name} mixes log prefixes {sorted(prefixes)} (#2148)"
+
+
 def test_detached_launch_targets_graphify_python():
     """The launcher must run via the resolved $GRAPHIFY_PYTHON, not a bare
     `python`, so it uses the same interpreter the detection block selected."""
@@ -423,6 +448,68 @@ def test_probe_prefers_sibling_python_exe_on_windows_layouts():
     from graphify.hooks import _PYTHON_DETECT
     assert "/../python.exe" in _PYTHON_DETECT
     assert "/python.exe" in _PYTHON_DETECT
+
+
+def _extract_case_pattern(marker: str) -> str:
+    """Pull the `*[!...]*` glob portion of a real case arm out of _PYTHON_DETECT
+    by a unique anchor, so tests run against the emitted text, not a copy."""
+    from graphify.hooks import _PYTHON_DETECT
+    for line in _PYTHON_DETECT.splitlines():
+        if marker in line:
+            return line.strip().split(")")[0]
+    raise AssertionError(f"case arm containing {marker!r} not found in _PYTHON_DETECT")
+
+
+def _shell_verdict(pattern: str, candidate: str) -> str:
+    result = subprocess.run(
+        ["bash", "-c", f'case "$1" in\n{pattern}) echo REJECTED ;;\n*) echo ACCEPTED ;;\nesac', "_", candidate],
+        capture_output=True, text=True,
+    )
+    # Fail loudly on a malformed case snippet instead of returning "" and
+    # producing a confusing ACCEPTED/REJECTED mismatch downstream.
+    assert result.returncode == 0, (
+        f"bash exited {result.returncode} for pattern {pattern!r}: {result.stderr.strip()}"
+    )
+    return result.stdout.strip()
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required to exercise emitted glob")
+@pytest.mark.parametrize("winpath", [
+    r"C:\Users\u\.venv\Scripts\python.exe",
+    r"C:\Python311\python.exe",
+])
+def test_file_path_allowlist_accepts_windows_backslash_path(winpath):
+    """#2126: the .graphify_python FILE allowlist must accept real Windows paths
+    at actual shell runtime. Old pattern rejected them due to bash bracket-escape."""
+    pattern = _extract_case_pattern('_FROM_FILE=""')
+    assert _shell_verdict(pattern, winpath) == "ACCEPTED", (
+        f"Windows path {winpath!r} rejected by file-path allowlist at shell runtime"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required to exercise emitted glob")
+@pytest.mark.parametrize("shebang_path", [
+    r"C:\Users\u\.venv\Scripts\python.exe",
+])
+def test_shebang_allowlist_accepts_windows_backslash_path(shebang_path):
+    """#2126: the shebang-parsed launcher allowlist had no `:` or `\\` at all, so
+    any Windows-style shebang path was unconditionally emptied. Must ACCEPT now."""
+    pattern = _extract_case_pattern('GRAPHIFY_PYTHON="" ;;')
+    assert _shell_verdict(pattern, shebang_path) == "ACCEPTED", (
+        f"Windows shebang path {shebang_path!r} rejected by launcher allowlist"
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required to exercise emitted glob")
+@pytest.mark.parametrize("dangerous", ["foo;rm -rf /", "foo`id`", "foo$(id)", "foo$IFS"])
+def test_python_detect_allowlists_still_reject_shell_metacharacters(dangerous):
+    """Guard against a naive fix (backslash right before `]`) that forms a
+    `:`-to-`\\` range admitting `;`, backtick, `$`. Both allowlists must reject."""
+    for marker in ('_FROM_FILE=""', 'GRAPHIFY_PYTHON="" ;;'):
+        pattern = _extract_case_pattern(marker)
+        assert _shell_verdict(pattern, dangerous) == "REJECTED", (
+            f"{marker} allowlist wrongly accepted dangerous input {dangerous!r}"
+        )
 
 
 @pytest.mark.parametrize("name,script", _HOOK_SCRIPTS)

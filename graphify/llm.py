@@ -986,6 +986,19 @@ def _bedrock_content(user_message: str, refs: list[_ImageRef]) -> list[dict]:
 _LLM_JSON_MAX_BYTES = 10 * 1024 * 1024  # 10 MB hard cap before json.loads (F-016)
 
 
+def _sanitize_fragment(result: dict) -> dict:
+    """Sanitize the returned fragment dictionary so it only contains valid node/edge structures."""
+    for key in ("nodes", "edges", "hyperedges"):
+        val = result.get(key)
+        if val is None:
+            continue
+        if not isinstance(val, list):
+            result[key] = []
+            continue
+        result[key] = [item for item in val if isinstance(item, dict)]
+    return result
+
+
 def _parse_llm_json(raw: str) -> dict:
     """Strip optional markdown fences and parse JSON. Returns empty fragment on failure.
 
@@ -1019,7 +1032,7 @@ def _parse_llm_json(raw: str) -> dict:
     try:
         parsed = json.loads(stripped)
         if isinstance(parsed, dict):
-            return parsed
+            return _sanitize_fragment(parsed)
         # Top-level array/scalar (common LLM output) is not a usable graph
         # fragment; fall through to the next strategy rather than returning a
         # non-dict that callers will try to subscript (e.g. result["input_tokens"]).
@@ -1054,7 +1067,7 @@ def _parse_llm_json(raw: str) -> dict:
                     try:
                         parsed = json.loads(stripped[start : i + 1])
                         if isinstance(parsed, dict):
-                            return parsed
+                            return _sanitize_fragment(parsed)
                         break
                     except json.JSONDecodeError:
                         break
