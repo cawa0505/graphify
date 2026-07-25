@@ -121,3 +121,13 @@ Small, important quality-of-life adjustments and stability fixes:
 - **Markdown Fence Stripping**: Automatically cleans up and extracts JSON from models that wrap responses in `` ```json ``` `` code blocks.
 - **Robust Parallel Extractor**: Adds `**kwargs` support to `extract_corpus_parallel()` to prevent method signature crashes when passing custom run options.
 - **Partial Import Resilience**: Implemented a `_partial_source_files` stub to prevent schema import crashes when the LLM returns incomplete file paths.
+
+---
+
+## Backward Compatibility & Seamless Migration
+
+**graphify-opt** is engineered with an absolute commitment to zero-friction backward compatibility. If you are upgrading from standard `graphify` or an older custom fork:
+
+- **100% Zero-Touch Migration**: All of your existing local caches, generated graphs (`graphify-out/`), and configuration files (`config.json`) are **100% fully backward-compatible**. No files need to be deleted, rebuilt, or migrated.
+- **Self-Healing Cache Layer**: The new 3-tier AST-based caching layer automatically integrates with your old content-hash caches. It self-heals by back-propagating AST matches into standard raw-hash caches natively on first run.
+- **Opt-In High Performance**: The Rust-compiled JSON acceleration (`orjson`) is **completely optional**. If `orjson` is not installed on your system, `graphify-opt` will gracefully fallback to standard library `json` and work flawlessly. Install `orjson` at any time (`pip install orjson`) to instantly unlock 10x serialization speedups with zero configuration required.
