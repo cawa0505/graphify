@@ -1,15 +1,16 @@
-# graphify-opt (⚠️ DEPRECATED / 已廢棄 - Migrated to GraphifyRust)
+# graphify-opt (⚠️ DEPRECATED — Migrated to graphify-rust)
 
-> **重要公告 (Important Notice):**
-> 本專案（Python / `graphify-opt` 版）已正式廢棄並停止維護（EOL）。所有功能已無痛、完美遷移至 **100% 原生 Rust 版本**！
+> **IMPORTANT NOTICE:**
+> This repository (the Python-based `graphify-opt`) has been **officially deprecated and is no longer maintained (EOL)**.
+> All core features, optimizations, and capabilities have been fully rewritten and migrated to our **100% native Rust-based codebase**!
 > 
-> 🚀 **Rust 新版本優勢：**
-> - **速度提升 26+ 倍**（中型 Codebase AST 掃描與建圖僅需 **16 毫秒**！）
-> - **節省 60% Token 體積**（全新支援超輕量、省空間的 `.toon` 圖譜格式，以及內存-序列化虛擬超邊聚合）
-> - **無依賴、單一二進位制分發**（支援 WASM 與單一執行檔，Homelab 常駐極致省電）
-> - **原生的 MCP 伺服器支援**（支援 BFS 圖查詢、最短路徑、增量重索引）
+> 🚀 **Why you should migrate to GraphifyRust:**
+> - **26x+ Faster Parsing**: Static AST extraction and graph construction completes in less than **16ms** (compared to 420ms+ in Python) for medium codebases.
+> - **60% Token & Storage Savings**: Native first-class support for the ultra-compact `.toon` format, and virtual serialization-time hyperedge aggregation.
+> - **0 Dependency Executable**: Distributed as a single compiled binary without needing Python, PyTorch, C/C++ FFI setup, or Docker.
+> - **Built-in MCP Server**: Out-of-the-box MCP integration supporting graph BFS, shortest-path, and real-time incremental reindexing.
 > 
-> 👉 **請即刻遷移至 Rust 完全體版本：[cawa0505/graphify-rust](https://github.com/cawa0505/graphify-rust)**
+> 👉 **Please migrate immediately to the official Rust version: [cawa0505/graphify-rust](https://github.com/cawa0505/graphify-rust)**
 
 ---
 
